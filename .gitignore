@@ -1,0 +1,9 @@
+node_modules/
+dist/
+clips_output/
+*.map
+*.tsbuildinfo
+cookies.txt
+nohup.out
+server.log
+*.png
