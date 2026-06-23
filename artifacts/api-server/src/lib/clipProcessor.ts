@@ -150,8 +150,8 @@ function findWorkspaceRoot(): string {
     if (fs.existsSync(path.join(dir, "scripts", "render_headline.py"))) return dir;
     dir = path.dirname(dir);
   }
-  // Stable fallback for Replit
-  return "/home/runner/workspace";
+  // Stable fallback for Termux
+  return "/data/data/com.termux/files/home/myapp";
 }
 const RENDER_HEADLINE_SCRIPT = path.join(findWorkspaceRoot(), "scripts", "render_headline.py");
 const DETECT_OVERLAP_SCRIPT = path.join(findWorkspaceRoot(), "scripts", "detect_watermark_overlap.py");
@@ -179,6 +179,10 @@ function timeToSeconds(ts: string): number {
 export function normalizeYoutubeUrl(url: string): string {
   try {
     const parsed = new URL(url);
+    if (parsed.hostname.includes("youtube.com") && parsed.pathname.startsWith("/live/")) {
+      const videoId = parsed.pathname.replace("/live/", "");
+      return `https://www.youtube.com/watch?v=${videoId}`;
+    }
     return parsed.toString();
   } catch {
     // If URL() can't parse it, just lowercase the protocol prefix
@@ -439,44 +443,41 @@ async function downloadSegment(
 
   const attempts: Array<{ format: string; label: string; stallMs: number; hardMs: number; extraArgs?: string[] }> = [
     {
-      // HLS m3u8 — best for live stream recordings (direct timestamp seek, no full file download)
       format: "95/93/94/best[protocol=m3u8_native]/best[protocol=m3u8]",
       label: "HLS m3u8 (live stream)",
       stallMs: 300_000,
       hardMs: 900_000,
+      extraArgs: ["--extractor-args", "youtube:player_client=android_vr,web"],
     },
     {
-      // Native downloader + 1080p DASH. Works on regular videos and archived live recordings
-      // because segments are downloaded individually from the manifest (no CDN stream seek).
       format: "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]+bestaudio/bestvideo[height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio",
       label: "DASH 1080p (native)",
-      stallMs: 300_000,  // 5 min stall — live stream seeking can take a while with no progress output
-      hardMs: 900_000,  // 15 min hard cap
-      extraArgs: nativeArgs,
+      stallMs: 300_000,
+      hardMs: 900_000,
+      extraArgs: ["--downloader", "native", "--concurrent-fragments", "4", "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=android_vr,web"],
     },
     {
-      // Native downloader + 720p DASH fallback.
       format: "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720][ext=mp4]+bestaudio/bestvideo[height<=720]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio",
       label: "DASH 720p (native)",
       stallMs: 300_000,
-      hardMs: 600_000,  // 10 min — smaller file, 720p
-      extraArgs: nativeArgs,
+      hardMs: 600_000,
+      extraArgs: ["--downloader", "native", "--concurrent-fragments", "4", "--remote-components", "ejs:github", "--extractor-args", "youtube:player_client=android_vr,web"],
     },
     {
-      // Format 18 = 360p H.264+AAC combined progressive mp4.
-      // Not DASH — moov-atom byte-range seek is reliable even on archived live streams.
       format: "18/best[ext=mp4]/best",
       label: "progressive mp4 fallback (360p)",
       stallMs: 300_000,
       hardMs: 300_000,
+      extraArgs: ["--extractor-args", "youtube:player_client=android_vr,web"],
     },
     {
       format: "best",
       label: "best available (any format)",
       stallMs: 300_000,
       hardMs: 300_000,
+      extraArgs: ["--extractor-args", "youtube:player_client=android_vr,web"],
     },
-  ];
+  ]
 
   let lastError: Error = new Error("no attempts made");
 
@@ -492,7 +493,7 @@ async function downloadSegment(
     try {
       await spawnProcess(
         ytDlp,
-        buildYtDlpArgs(section, attempt.format, outTemplate, youtubeUrl, cookiesArgs, attempt.extraArgs ?? []),
+        buildYtDlpArgs(section, attempt.format, outTemplate, youtubeUrl, (attempt.extraArgs ?? []).join(" ").includes("android_vr") ? [] : cookiesArgs, attempt.extraArgs ?? []),
         attempt.hardMs,
         (line) => {
           const m = line.match(/\[download\]\s+(\d+\.?\d*)%/);
@@ -519,7 +520,7 @@ async function downloadSegment(
     } catch (err) {
       lastError = err as Error;
       const msg = lastError.message;
-      const isStallOrTimeout = /killed\|/.test(msg) || msg.includes("stalled") || msg.includes("timed out");
+      const isStallOrTimeout = /killed\|/.test(msg) || msg.includes("stalled") || msg.includes("timed out") || /live event has ended/i.test(msg) || msg.includes("not available");
 
       if (!isStallOrTimeout || i === attempts.length - 1) {
         // Real error, or we've exhausted all fallbacks
@@ -729,8 +730,10 @@ export async function processClip(
       "-map", "[out]",
       "-map", "0:a?",
       "-c:v", "libx264",
-      "-preset", "slow",
+      "-threads", "1",
+      "-preset", "veryfast",
       "-crf", "14",
+
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
       "-b:a", "256k",

@@ -107,7 +107,7 @@ export default function ClipDetail() {
       <main className="flex-1 p-6 md:p-8 max-w-3xl mx-auto w-full">
         {/* Back button */}
         <button
-          onClick={() => navigate("/")}
+          onClick={() => navigate("/timeline")}
           className="flex items-center gap-2 text-sm font-mono text-muted-foreground hover:text-foreground transition-colors mb-8 group"
         >
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />

@@ -1,7 +1,8 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 
-const SETTINGS_FILE = path.join(process.cwd(), "clips_settings.json");
+const SETTINGS_FILE = path.join(os.homedir(), "myapp", "clips_settings.json");
 const DEFAULT_CHANNEL_HANDLE = "@THEY CALL ME A SHOT";
 
 export interface AppSettings {

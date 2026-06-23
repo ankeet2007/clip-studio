@@ -15,7 +15,11 @@ aiRouter.post("/ai-suggest", async (req, res) => {
   try {
     // Attempt to extract the ID manually if the package fails
     const videoIdMatch = youtubeUrl.match(/(?:youtu\.be\/|youtube\.com\/(?:live\/|embed\/|v\/|watch\?v=))([^&?]+)/);
-    const videoId = videoIdMatch ? videoIdMatch[1] : youtubeUrl;
+    const videoId = videoIdMatch?.[1];
+    if (!videoId) {
+      res.status(400).send({ error: "Could not extract video ID from URL" });
+      return;
+    }
 
     // Fetch the transcript using the ID
     const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);

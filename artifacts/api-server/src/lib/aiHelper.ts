@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export async function getAiClipSuggestion(transcript: string) {
-  const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
 
   const prompt = `
   You are an expert short-form video editor. 

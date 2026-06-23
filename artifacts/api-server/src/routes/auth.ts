@@ -16,7 +16,7 @@ const SCOPES = "https://gdata.youtube.com https://www.googleapis.com/auth/youtub
 // yt-dlp plugin stores the token here using its cache format: {"yt-dlp_version": "...", "data": {...}}
 const TOKEN_DIR = path.join(os.homedir(), ".cache", "yt-dlp", "youtube-oauth2");
 const TOKEN_PATH = path.join(TOKEN_DIR, "token_data.json");
-const YTDLP_VERSION = "2026.03.17"; // must match installed yt-dlp version
+const YTDLP_VERSION = "2026.06.09"; // must match installed yt-dlp version
 
 interface TokenData {
   access_token: string;
@@ -245,12 +245,18 @@ router.get("/status", (_req: Request, res: Response) => {
 });
 
 // DELETE /api/auth/youtube — disconnect
-router.delete("/", (_req: Request, res: Response) => {
+router.delete("/", async (_req: Request, res: Response) => {
   stopPolling();
   try {
     if (fs.existsSync(TOKEN_PATH)) fs.unlinkSync(TOKEN_PATH);
   } catch (err) {
-    logger.warn({ err }, "Failed to delete OAuth2 token");
+    logger.warn({ err }, "Failed to delete OAuth2 token file");
+  }
+  try {
+    await db.delete(appConfigTable).where(eq(appConfigTable.key, "youtube_oauth_token")).execute();
+    logger.info("YouTube OAuth2 token deleted from DB");
+  } catch (err) {
+    logger.warn({ err }, "Failed to delete OAuth2 token from DB");
   }
   authState = { status: "idle", userCode: "", verificationUrl: "", deviceCode: "", interval: 5, pollTimer: null };
   return res.json({ disconnected: true });

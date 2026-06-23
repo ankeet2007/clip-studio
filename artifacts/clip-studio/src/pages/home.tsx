@@ -49,7 +49,7 @@ const formSchema = z.object({
   youtubeUrl: z
     .string()
     .url("Must be a valid URL")
-    .regex(/youtube\.com|youtu\.be/, "Must be a YouTube URL"),
+    .regex(/(?:youtube\.com|youtu\.be)/, "Must be a YouTube URL"),
   frameStyle: z.enum(["standard", "immersive"]).default("immersive"),
   clips: z.array(clipEntrySchema).min(1),
 });
