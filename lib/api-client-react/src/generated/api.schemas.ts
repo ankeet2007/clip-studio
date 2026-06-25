@@ -60,6 +60,7 @@ export interface Clip {
   outputFilename: string | null;
   createdAt: string;
   updatedAt: string;
+  sourceChannel: string;
 }
 
 export type CreateClipBodyMode =
@@ -78,6 +79,7 @@ export interface CreateClipBody {
   endTime: string;
   headline?: string;
   mode?: CreateClipBodyMode;
+  sourceChannel?: string;
 }
 
 export interface ClipStats {

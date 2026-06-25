@@ -51,6 +51,7 @@ const formSchema = z.object({
     .url("Must be a valid URL")
     .regex(/(?:youtube\.com|youtu\.be)/, "Must be a YouTube URL"),
   frameStyle: z.enum(["standard", "immersive"]).default("immersive"),
+  sourceChannel: z.string().optional().default(""),
   clips: z.array(clipEntrySchema).min(1),
 });
 
@@ -65,6 +66,7 @@ interface LocalForm {
   endTime: string;
   headline: string;
   mode: "edited" | "raw";
+  sourceChannel: string;
 }
 
 export default function Home() {
@@ -85,6 +87,7 @@ export default function Home() {
     endTime: "00:01:00",
     headline: "",
     mode: "edited",
+    sourceChannel: "",
   });
   const [localErrors, setLocalErrors] = useState<Partial<Record<keyof LocalForm | "file", string>>>({});
 
@@ -160,6 +163,7 @@ export default function Home() {
             endTime: clip.endTime,
             headline: clip.headline ?? "",
             mode: clip.mode,
+            sourceChannel: values.sourceChannel ?? "",
           }),
         });
         if (!r.ok) {
@@ -211,6 +215,7 @@ export default function Home() {
     formData.append("headline", localForm.headline);
     formData.append("mode", localForm.mode);
     formData.append("frameStyle", form.getValues("frameStyle"));
+    formData.append("sourceChannel", localForm.sourceChannel ?? "");
 
     await new Promise<void>((resolve) => {
       const xhr = new XMLHttpRequest();
@@ -368,6 +373,17 @@ export default function Home() {
                       {form.formState.errors.youtubeUrl.message}
                     </p>
                   )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="font-mono text-xs uppercase tracking-wider text-muted-foreground">
+                    Source Creator (optional)
+                  </Label>
+                  <Input
+                    placeholder="e.g. KSI, MrBeast, IShowSpeed"
+                    className="font-mono text-sm bg-card"
+                    {...form.register("sourceChannel")}
+                  />
                 </div>
 
                 <div className="space-y-3">

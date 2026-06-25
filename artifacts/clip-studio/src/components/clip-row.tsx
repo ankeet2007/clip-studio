@@ -115,6 +115,16 @@ export function ClipRow({ initialClip }: { initialClip: Clip }) {
       className="flex flex-col md:flex-row md:items-center gap-3 p-4 border-b border-border/50 bg-card/50 hover:bg-card transition-colors cursor-pointer group"
       onClick={() => navigate(`/clips/${clip.id}`)}
     >
+      {clip.status === "done" && (
+        <div className="shrink-0 w-12 h-20 rounded overflow-hidden bg-muted border border-border/50">
+          <img
+            src={"/api/clips/" + clip.id + "/thumbnail"}
+            alt="thumbnail"
+            className="w-full h-full object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        </div>
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-3 mb-1">
           {getStatusBadge()}

@@ -19,6 +19,7 @@ export const clipsTable = pgTable("clips", {
   outputFilename: text("output_filename"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  sourceChannel: text("source_channel").notNull().default(""),
 });
 
 export const insertClipSchema = createInsertSchema(clipsTable).omit({

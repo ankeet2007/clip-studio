@@ -55,7 +55,8 @@ function dispatchClipJob(
   outputFilename: string,
   mode: "edited" | "raw" = "edited",
   frameStyle: "standard" | "immersive" = "immersive",
-  localFilePath?: string
+  localFilePath?: string,
+  sourceChannel = ""
 ) {
   const { channelHandle } = readSettings();
 
@@ -71,7 +72,7 @@ function dispatchClipJob(
       logger.error({ err, clipId }, "Failed to mark clip as processing");
     }
 
-    await processClip(youtubeUrl, startTime, endTime, headline, outputFilename, mode, channelHandle, clipId, localFilePath, frameStyle)
+    await processClip(youtubeUrl, startTime, endTime, headline, outputFilename, mode, channelHandle, clipId, localFilePath, frameStyle, sourceChannel)
       .then(async () => {
         await db
           .update(clipsTable)
@@ -101,10 +102,11 @@ router.post("/clips", async (req, res): Promise<void> => {
   const headline = parsed.data.headline ?? "";
   const mode = (parsed.data.mode ?? "edited") as "edited" | "raw";
   const frameStyle = (parsed.data.frameStyle ?? "immersive") as "standard" | "immersive";
+  const sourceChannel = parsed.data.sourceChannel ?? "";
 
   const [clip] = await db
     .insert(clipsTable)
-    .values({ youtubeUrl, startTime, endTime, headline, mode, frameStyle, sourceType: "youtube", status: "pending" })
+    .values({ youtubeUrl, startTime, endTime, headline, mode, frameStyle, sourceChannel, sourceType: "youtube", status: "pending" })
     .returning();
 
   if (!clip) {
@@ -115,7 +117,7 @@ router.post("/clips", async (req, res): Promise<void> => {
   res.status(201).json(GetClipResponse.parse(clip));
 
   const outputFilename = `clip_${clip.id}_${Date.now()}.mp4`;
-  dispatchClipJob(clip.id, youtubeUrl, startTime, endTime, headline, outputFilename, mode, frameStyle);
+  dispatchClipJob(clip.id, youtubeUrl, startTime, endTime, headline, outputFilename, mode, frameStyle, undefined, sourceChannel);
 });
 
 /**
@@ -131,6 +133,7 @@ router.post("/clips/upload", (req, res): void => {
   let headline = "";
   let mode: "edited" | "raw" = "edited";
   let frameStyle: "standard" | "immersive" = "immersive";
+  let sourceChannel = "";
   let savedFilePath: string | null = null;
   let savedFileName: string | null = null;
   let fileWritePromise: Promise<void> | null = null;
@@ -152,6 +155,7 @@ router.post("/clips/upload", (req, res): void => {
     if (name === "headline") headline = value;
     if (name === "mode" && (value === "edited" || value === "raw")) mode = value;
     if (name === "frameStyle" && (value === "standard" || value === "immersive")) frameStyle = value;
+    if (name === "sourceChannel") sourceChannel = value;
   });
 
   bb.on("file", (_name: string, stream: NodeJS.ReadableStream, info: { filename: string; encoding: string; mimeType: string }) => {
@@ -202,6 +206,7 @@ router.post("/clips/upload", (req, res): void => {
             mode,
             frameStyle,
             sourceType: "local",
+            sourceChannel,
             localFilePath: savedFilePath,
             localFileName: savedFileName,
             status: "pending",
@@ -217,7 +222,7 @@ router.post("/clips/upload", (req, res): void => {
         res.status(201).json(GetClipResponse.parse(clip));
 
         const outputFilename = `clip_${clip.id}_${Date.now()}.mp4`;
-        dispatchClipJob(clip.id, null, startTime, endTime, headline, outputFilename, mode, frameStyle, savedFilePath);
+        dispatchClipJob(clip.id, null, startTime, endTime, headline, outputFilename, mode, frameStyle, savedFilePath, sourceChannel);
       } catch (err) {
         if (savedFilePath) {
           try { if (fs.existsSync(savedFilePath)) fs.unlinkSync(savedFilePath); } catch { /* ignore */ }
@@ -350,6 +355,18 @@ router.get("/clips/:id/download", async (req, res): Promise<void> => {
   }
 
   res.download(filePath, clip.outputFilename);
+});
+
+router.get("/clips/:id/thumbnail", async (req, res): Promise<void> => {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const params = GetClipParams.safeParse({ id: raw });
+  if (!params.success) { res.status(400).json({ error: "Invalid id" }); return; }
+  const [clip] = await db.select().from(clipsTable).where(eq(clipsTable.id, params.data.id));
+  if (!clip) { res.status(404).json({ error: "Clip not found" }); return; }
+  const outputDir = process.env.CLIPS_OUTPUT_DIR ?? "/home/runner/workspace/clips_output";
+  const thumbPath = path.join(outputDir, "clip_" + clip.id + "_thumb.jpg");
+  if (!fs.existsSync(thumbPath)) { res.status(404).json({ error: "Thumbnail not ready" }); return; }
+  res.sendFile(thumbPath);
 });
 
 router.delete("/clips/:id", async (req, res): Promise<void> => {

@@ -41,6 +41,7 @@ export const ListClipsResponseItem = zod.object({
   outputFilename: zod.string().nullable(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
+  sourceChannel: zod.string(),
 });
 export const ListClipsResponse = zod.array(ListClipsResponseItem);
 
@@ -59,6 +60,7 @@ export const CreateClipBody = zod.object({
   headline: zod.string().default(createClipBodyHeadlineDefault),
   mode: zod.enum(["edited", "raw"]).default(createClipBodyModeDefault),
   frameStyle: zod.enum(["standard", "immersive"]).default(createClipBodyFrameStyleDefault),
+  sourceChannel: zod.string().default(""),
 });
 
 /**
@@ -90,6 +92,7 @@ export const GetClipResponse = zod.object({
   outputFilename: zod.string().nullable(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
+  sourceChannel: zod.string(),
 });
 
 /**

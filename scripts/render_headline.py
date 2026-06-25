@@ -94,7 +94,7 @@ def main():
         for line in chosen_lines:
             w, _ = measure(pilmoji, line, chosen_font, chosen_size)
             x = max(0, (canvas_width - w) // 2)
-            pilmoji.text((x, y), line, font=chosen_font, fill=(0, 0, 0, 255))
+            pilmoji.text((x, y), line, font=chosen_font, fill=(255, 255, 255, 255))
             y += line_height
 
     img.save(output_path, "PNG")

@@ -547,7 +547,8 @@ export async function processClip(
   channelHandle = "",
   clipId = 0,
   localFilePath?: string,
-  frameStyle: "standard" | "immersive" = "immersive"
+  frameStyle: "standard" | "immersive" = "immersive",
+  sourceChannel = ""
 ): Promise<void> {
   const isLocalFile = !!localFilePath;
   const ytDlp = findYtDlp();
@@ -613,11 +614,11 @@ export async function processClip(
     const canvasW = 1080;
     const canvasH = 1920;
     const videoW = 1080;
-    const videoH = frameStyle === "standard" ? 608 : 1080;
-    const videoY = Math.floor((canvasH - videoH) / 2);
+    const videoH = frameStyle === "standard" ? 608 : 1350;
+    const videoY = 200;    // fixed top bar for title
 
     const fontSize = 80;
-    const lineSpacing = 12;
+    const lineSpacing = 14;
 
     const fontFile = findFont();
     let tmpPngPath: string | null = null;
@@ -630,7 +631,7 @@ export async function processClip(
         font_path: fontFile,
         font_size: fontSize,
         line_spacing: lineSpacing,
-        max_chars: 38,
+        max_chars: 28,
         canvas_width: canvasW,
         output_path: tmpPngPath,
       });
@@ -685,8 +686,10 @@ export async function processClip(
     const extraInputs: string[] = [];
     const filters: string[] = [
       `[0:v]scale=${videoW}:${videoH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${videoW}:${videoH},unsharp=5:5:1.0:5:5:0.0[vid]`,
-      `color=white:size=${canvasW}x${canvasH}:rate=60[bg]`,
-      `[bg][vid]overlay=0:${videoY}[composed]`,
+      `color=#111111:size=${canvasW}x${canvasH}:rate=60[bg]`,
+      `[bg][vid]overlay=0:${videoY}[composedv]`,
+      `[composedv]drawbox=x=0:y=${videoY - 3}:w=${canvasW}:h=3:color=FF0000:t=fill[composedac]`,
+      sourceChannel && sourceChannel.trim() ? `[composedac]drawtext=text='📎 ${sourceChannel.trim().replace(/'/g,"")}':fontsize=24:fontcolor=white@0.85:x=w-text_w-16:y=${videoY + videoH - 36}:shadowx=1:shadowy=1:shadowcolor=black@0.9[composed]` : `[composedac]null[composed]`,
     ];
     let prevLabel = "composed";
 
@@ -701,21 +704,40 @@ export async function processClip(
     // Channel handle watermark: small white text with shadow near the bottom of the video frame
     if (channelHandle && channelHandle.trim()) {
       const safeHandle = escapeDrawtext(channelHandle.trim());
-      const handleY = videoY + videoH - 44;
+      const handleY = videoY + videoH + Math.floor((canvasH - videoY - videoH - 36) / 2);  // centered in bottom bar
       filters.push(
         `[${prevLabel}]drawtext=` +
         `text='${safeHandle}':` +
         `fontfile='${fs.existsSync(WATERMARK_FONT) ? WATERMARK_FONT : fontFile}':` +
-        `fontsize=28:` +
+        `fontsize=36:` +
         `fontcolor=white:` +
         `shadowx=2:shadowy=2:shadowcolor=black@0.8:` +
         `x=${handleX}:` +
         `y=${handleY}` +
-        `[out]`
+        `[pre_outro]`
       );
     } else {
-      filters.push(`[${prevLabel}]null[out]`);
+      filters.push(`[${prevLabel}]null[pre_outro]`);
     }
+
+    // Outro card: last 2 seconds = black overlay + styled end screen
+    const outroStart = Math.max(0, duration - 2);
+    const safeHandleOutro = (channelHandle || '').replace(/'/g, '').trim();
+    filters.push(
+      // Black overlay
+      `[pre_outro]drawbox=x=0:y=0:w=${canvasW}:h=${canvasH}:color=black@1:t=fill:enable='gte(t,${outroStart})'[ob]`,
+      // Thin red accent line top
+      `[ob]drawbox=x=340:y=700:w=400:h=3:color=FF0000:t=fill:enable='gte(t,${outroStart})'[ol1]`,
+      // Channel handle
+      `[ol1]drawtext=text='${safeHandleOutro}':fontsize=44:fontcolor=white:x=(w-text_w)/2:y=750:enable='gte(t,${outroStart})'[ol2]`,
+      // Red subscribe button background
+      `[ol2]drawbox=x=${Math.floor((canvasW - 380) / 2)}:y=830:w=380:h=80:color=FF0000:t=fill:enable='gte(t,${outroStart})'[ol3]`,
+      // Round corners illusion - small black boxes at corners
+      // SUBSCRIBE text inside red button
+      `[ol3]drawtext=text='SUBSCRIBE':fontsize=42:fontcolor=white:x=(w-text_w)/2:y=848:enable='gte(t,${outroStart})'[ol4]`,
+      // Thin red accent line bottom
+      `[ol4]drawbox=x=340:y=940:w=400:h=3:color=FF0000:t=fill:enable='gte(t,${outroStart})'[out]`
+    );
 
     const filterComplex = filters.join(";");
 
@@ -757,6 +779,55 @@ export async function processClip(
     });
 
     logger.info({ finalOutputPath }, "Clip processing complete");
+
+    // Extract best frame as thumbnail (non-fatal)
+    if (clipId) {
+      const thumbPath = path.join(outputDir, `clip_${clipId}_thumb.jpg`);
+      try {
+        await spawnProcess("ffmpeg", [
+          "-y", "-i", finalOutputPath,
+          "-vf", "thumbnail=300",
+          "-frames:v", "1",
+          thumbPath,
+        ], 60000, () => {});
+        logger.info({ thumbPath }, "Thumbnail extracted");
+      } catch (thumbErr) {
+        logger.warn({ thumbErr }, "Thumbnail extraction failed (non-fatal)");
+      }
+
+      // Generate captions via whisper.cpp + burn into video (non-fatal)
+      try {
+        const srtPath = path.join(outputDir, `clip_${clipId}_captions.srt`);
+        const captionScript = path.join(os.homedir(), "myapp/scripts/generate_captions.sh");
+        const captionedPath = path.join(outputDir, `clip_${clipId}_captioned.mp4`);
+
+        if (fs.existsSync(captionScript)) {
+          await new Promise<void>((resolve) => {
+            const cap = spawn("bash", [captionScript, finalOutputPath, srtPath], { timeout: 300000 });
+            cap.on("close", () => resolve());
+            cap.on("error", () => resolve());
+          });
+
+          if (fs.existsSync(srtPath)) {
+            await spawnProcess("ffmpeg", [
+              "-y", "-i", finalOutputPath,
+              "-vf", `subtitles=${srtPath}:force_style='FontName=Arial,FontSize=10,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Bold=1,Alignment=2,MarginV=60'`,
+              "-c:v", "libx264", "-preset", "veryfast", "-crf", "14", "-threads", "1",
+              "-c:a", "copy",
+              captionedPath,
+            ], 600000, () => {});
+
+            if (fs.existsSync(captionedPath)) {
+              fs.renameSync(captionedPath, finalOutputPath);
+              logger.info({ finalOutputPath }, "Captions burned into clip");
+            }
+            fs.existsSync(srtPath) && fs.unlinkSync(srtPath);
+          }
+        }
+      } catch (capErr) {
+        logger.warn({ capErr }, "Caption generation failed (non-fatal)");
+      }
+    }
   } finally {
     // Clean up all temp files for this job (video segment + headline PNG).
     try {
