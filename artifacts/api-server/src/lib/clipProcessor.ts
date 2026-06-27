@@ -628,7 +628,9 @@ export async function processClip(
     const canvasH = 1920;
     const videoW = 1080;
     const videoH = frameStyle === "standard" ? 608 : 1350;
-    const videoY = 200;    // fixed top bar for title
+    const videoY = 240;    // top bar for title; 240 (not 200) drops the title + frame
+                           // ~40px so the headline clears YouTube's top UI (back/search/
+                           // menu icons). Bottom bar stays 330px — ample for the watermark.
 
     const fontSize = 96;
     const lineSpacing = 14;
