@@ -731,16 +731,23 @@ export async function processClip(
 
     // Channel handle watermark: small white text with shadow near the bottom of the video frame
     if (channelHandle && channelHandle.trim()) {
-      const safeHandle = escapeDrawtext(channelHandle.trim());
-      const handleY = videoY + videoH + Math.floor((canvasH - videoY - videoH - 36) / 2);  // centered in bottom bar
+      // Watermark uses Anton (bold condensed display face, same as the headline) in
+      // uppercase so it reads strongly. It lives in the black bar below the video, so
+      // it is always horizontally centered — the source-watermark overlap shift in
+      // handleX only matters for text drawn over the video frame, not down here.
+      const safeHandle = escapeDrawtext(channelHandle.trim().toUpperCase());
+      const handleFont = fs.existsSync(ANTON_FONT) ? ANTON_FONT : (fs.existsSync(WATERMARK_FONT) ? WATERMARK_FONT : fontFile);
+      const handleFontSize = 48;
+      const handleY = videoY + videoH + Math.floor((canvasH - videoY - videoH - handleFontSize) / 2);  // vertically centered in bottom bar
       filters.push(
         `[${prevLabel}]drawtext=` +
         `text='${safeHandle}':` +
-        `fontfile='${fs.existsSync(WATERMARK_FONT) ? WATERMARK_FONT : fontFile}':` +
-        `fontsize=36:` +
+        `fontfile='${handleFont}':` +
+        `fontsize=${handleFontSize}:` +
         `fontcolor=white:` +
-        `shadowx=2:shadowy=2:shadowcolor=black@0.8:` +
-        `x=${handleX}:` +
+        `borderw=3:bordercolor=black@0.55:` +
+        `shadowx=2:shadowy=2:shadowcolor=black@0.85:` +
+        `x=(w-text_w)/2:` +
         `y=${handleY}` +
         `[pre_outro]`
       );
