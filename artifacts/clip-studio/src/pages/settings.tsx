@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { ArrowLeft, CheckCircle2, Loader2, Youtube, LogOut, ExternalLink, RefreshCw, AtSign, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+import { API_BASE } from "@/lib/api";
 
 interface AuthStatus {
   connected: boolean;
@@ -27,7 +27,7 @@ export default function Settings() {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
 
-  const [channelHandle, setChannelHandle] = useState("@THEY CALL ME A SHOT");
+  const [channelHandle, setChannelHandle] = useState("");
   const [channelHandleDraft, setChannelHandleDraft] = useState("");
   const [savingHandle, setSavingHandle] = useState(false);
 
@@ -77,7 +77,7 @@ export default function Settings() {
         setDisplayedUrl(s.verificationUrl);
         startPolling();
       }
-    }).finally(() => setLoading(false));
+    }).catch(() => {}).finally(() => setLoading(false));
 
     // Load channel handle from settings
     fetch(`${API_BASE}/api/settings`)
@@ -139,12 +139,17 @@ export default function Settings() {
 
   async function handleDisconnect() {
     stopPolling();
-    await fetch(`${API_BASE}/api/auth/youtube`, { method: "DELETE" });
-    setConnected(false);
-    setDisplayedCode("");
-    setDisplayedUrl("");
-    setCodeExpired(false);
-    toast({ title: "Disconnected", description: "YouTube account unlinked." });
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/youtube`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Disconnect failed");
+      setConnected(false);
+      setDisplayedCode("");
+      setDisplayedUrl("");
+      setCodeExpired(false);
+      toast({ title: "Disconnected", description: "YouTube account unlinked." });
+    } catch {
+      toast({ title: "Failed to disconnect", description: "Try again.", variant: "destructive" });
+    }
   }
 
   function handleRetry() {
@@ -157,23 +162,24 @@ export default function Settings() {
   const showCode = !!displayedCode && !connected;
 
   return (
-    <div className="h-full flex flex-col bg-black text-white font-mono">
+    <div className="h-full flex flex-col bg-background text-foreground font-mono">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-zinc-800">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-card">
         <button
           onClick={() => navigate("/")}
-          className="text-zinc-400 hover:text-white transition-colors"
+          className="text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Back to home"
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <span className="text-sm font-bold tracking-widest text-white">SETTINGS</span>
+        <span className="text-sm font-bold tracking-widest">SETTINGS</span>
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-8 max-w-lg mx-auto w-full space-y-8">
         {/* Channel Branding */}
         <div>
-          <p className="text-xs tracking-widest text-zinc-500 uppercase mb-4">Channel Branding</p>
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
+          <p className="text-xs tracking-widest text-muted-foreground uppercase mb-4">Channel Branding</p>
+          <div className="rounded-lg border border-border bg-card p-5">
             <div className="flex items-center gap-3 mb-3">
               <AtSign className="w-5 h-5 text-primary" />
               <span className="font-bold text-sm tracking-wide">Channel Handle</span>
@@ -183,15 +189,15 @@ export default function Settings() {
                 </span>
               )}
             </div>
-            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-              Burned into the bottom of every <span className="text-white font-semibold">Edited</span> clip automatically. Leave blank to omit.
+            <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+              Burned into the bottom of every <span className="text-foreground font-semibold">Edited</span> clip automatically. Leave blank to omit.
             </p>
             <div className="flex gap-2">
               <Input
                 value={channelHandleDraft}
                 onChange={(e) => setChannelHandleDraft(e.target.value)}
                 placeholder="@your_channel"
-                className="font-mono text-sm bg-zinc-900 border-zinc-700 text-white placeholder-zinc-600 flex-1"
+                className="font-mono text-sm bg-background flex-1"
               />
               <Button
                 size="sm"
@@ -211,9 +217,9 @@ export default function Settings() {
 
         {/* YouTube Account */}
         <div>
-          <p className="text-xs tracking-widest text-zinc-500 uppercase mb-4">YouTube Account</p>
+          <p className="text-xs tracking-widest text-muted-foreground uppercase mb-4">YouTube Account</p>
 
-          <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
+          <div className="rounded-lg border border-border bg-card p-5">
             <div className="flex items-center gap-3 mb-3">
               <Youtube className="w-5 h-5 text-red-500" />
               <span className="font-bold text-sm tracking-wide">YouTube Connection</span>
@@ -224,20 +230,20 @@ export default function Settings() {
               )}
             </div>
 
-            <p className="text-xs text-zinc-400 mb-5 leading-relaxed">
+            <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
               Connect your YouTube account to unlock max-quality downloads for livestreams and age-restricted videos.
               Without this, livestreams are capped at 360p.
             </p>
 
             {loading ? (
-              <div className="flex items-center gap-2 text-zinc-500 text-xs">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs">
                 <Loader2 className="w-4 h-4 animate-spin" /> Checking status…
               </div>
             ) : connected ? (
               <Button
                 variant="outline"
                 size="sm"
-                className="border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 text-xs"
+                className="text-muted-foreground hover:text-foreground text-xs"
                 onClick={handleDisconnect}
               >
                 <LogOut className="w-3.5 h-3.5 mr-1.5" /> Disconnect
@@ -245,7 +251,7 @@ export default function Settings() {
             ) : showCode ? (
               <div className="space-y-4">
                 <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-4">
-                  <p className="text-xs text-zinc-400 mb-3">
+                  <p className="text-xs text-muted-foreground mb-3">
                     Open this link on any device — phone, tablet, laptop — and enter the code:
                   </p>
                   <a
@@ -258,26 +264,26 @@ export default function Settings() {
                     <ExternalLink className="w-3 h-3" />
                   </a>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs text-zinc-500">Code:</span>
-                    <span className="text-2xl font-bold tracking-[0.3em] text-white select-all">
+                    <span className="text-xs text-muted-foreground">Code:</span>
+                    <span className="text-2xl font-bold tracking-[0.3em] text-foreground select-all">
                       {displayedCode}
                     </span>
                   </div>
                 </div>
                 {codeExpired ? (
                   <div className="space-y-2">
-                    <p className="text-xs text-red-400">Code expired — get a new one.</p>
+                    <p className="text-xs text-destructive">Code expired — get a new one.</p>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-zinc-700 text-zinc-300 text-xs"
+                      className="text-muted-foreground text-xs"
                       onClick={handleRetry}
                     >
                       <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Get new code
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 text-xs text-zinc-500">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     Waiting for you to enter the code…
                   </div>
@@ -300,10 +306,10 @@ export default function Settings() {
           </div>
 
           {!connected && !showCode && (
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-5 mt-4">
-              <p className="text-xs tracking-widest text-zinc-500 uppercase mb-3">How it works</p>
-              <ol className="space-y-2 text-xs text-zinc-400 list-decimal list-inside leading-relaxed">
-                <li>Tap <span className="text-white font-semibold">Connect YouTube Account</span> above</li>
+            <div className="rounded-lg border border-border bg-card p-5 mt-4">
+              <p className="text-xs tracking-widest text-muted-foreground uppercase mb-3">How it works</p>
+              <ol className="space-y-2 text-xs text-muted-foreground list-decimal list-inside leading-relaxed">
+                <li>Tap <span className="text-foreground font-semibold">Connect YouTube Account</span> above</li>
                 <li>A code and link will appear</li>
                 <li>Open the link on any device and enter the code</li>
                 <li>Done — all your clips now download at max quality</li>

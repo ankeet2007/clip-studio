@@ -56,7 +56,9 @@ function dispatchClipJob(
   mode: "edited" | "raw" = "edited",
   frameStyle: "standard" | "immersive" = "immersive",
   localFilePath?: string,
-  sourceChannel = ""
+  sourceChannel = "",
+  captionsEnabled = true,
+  outroEnabled = true
 ) {
   const { channelHandle } = readSettings();
 
@@ -72,7 +74,7 @@ function dispatchClipJob(
       logger.error({ err, clipId }, "Failed to mark clip as processing");
     }
 
-    await processClip(youtubeUrl, startTime, endTime, headline, outputFilename, mode, channelHandle, clipId, localFilePath, frameStyle, sourceChannel)
+    await processClip(youtubeUrl, startTime, endTime, headline, outputFilename, mode, channelHandle, clipId, localFilePath, frameStyle, sourceChannel, captionsEnabled, outroEnabled)
       .then(async () => {
         await db
           .update(clipsTable)
@@ -103,10 +105,12 @@ router.post("/clips", async (req, res): Promise<void> => {
   const mode = (parsed.data.mode ?? "edited") as "edited" | "raw";
   const frameStyle = (parsed.data.frameStyle ?? "immersive") as "standard" | "immersive";
   const sourceChannel = parsed.data.sourceChannel ?? "";
+  const captionsEnabled = parsed.data.captionsEnabled ?? true;
+  const outroEnabled = (req.body as { outroEnabled?: boolean }).outroEnabled ?? true;
 
   const [clip] = await db
     .insert(clipsTable)
-    .values({ youtubeUrl, startTime, endTime, headline, mode, frameStyle, sourceChannel, sourceType: "youtube", status: "pending" })
+    .values({ youtubeUrl, startTime, endTime, headline, mode, frameStyle, sourceChannel, captionsEnabled, sourceType: "youtube", status: "pending" })
     .returning();
 
   if (!clip) {
@@ -117,7 +121,7 @@ router.post("/clips", async (req, res): Promise<void> => {
   res.status(201).json(GetClipResponse.parse(clip));
 
   const outputFilename = `clip_${clip.id}_${Date.now()}.mp4`;
-  dispatchClipJob(clip.id, youtubeUrl, startTime, endTime, headline, outputFilename, mode, frameStyle, undefined, sourceChannel);
+  dispatchClipJob(clip.id, youtubeUrl, startTime, endTime, headline, outputFilename, mode, frameStyle, undefined, sourceChannel, captionsEnabled, outroEnabled);
 });
 
 /**
@@ -134,6 +138,7 @@ router.post("/clips/upload", (req, res): void => {
   let mode: "edited" | "raw" = "edited";
   let frameStyle: "standard" | "immersive" = "immersive";
   let sourceChannel = "";
+  let captionsEnabled = true;
   let savedFilePath: string | null = null;
   let savedFileName: string | null = null;
   let fileWritePromise: Promise<void> | null = null;
@@ -156,6 +161,7 @@ router.post("/clips/upload", (req, res): void => {
     if (name === "mode" && (value === "edited" || value === "raw")) mode = value;
     if (name === "frameStyle" && (value === "standard" || value === "immersive")) frameStyle = value;
     if (name === "sourceChannel") sourceChannel = value;
+    if (name === "captionsEnabled") captionsEnabled = value !== "false";
   });
 
   bb.on("file", (_name: string, stream: NodeJS.ReadableStream, info: { filename: string; encoding: string; mimeType: string }) => {
@@ -207,6 +213,7 @@ router.post("/clips/upload", (req, res): void => {
             frameStyle,
             sourceType: "local",
             sourceChannel,
+            captionsEnabled,
             localFilePath: savedFilePath,
             localFileName: savedFileName,
             status: "pending",
@@ -222,7 +229,7 @@ router.post("/clips/upload", (req, res): void => {
         res.status(201).json(GetClipResponse.parse(clip));
 
         const outputFilename = `clip_${clip.id}_${Date.now()}.mp4`;
-        dispatchClipJob(clip.id, null, startTime, endTime, headline, outputFilename, mode, frameStyle, savedFilePath, sourceChannel);
+        dispatchClipJob(clip.id, null, startTime, endTime, headline, outputFilename, mode, frameStyle, savedFilePath, sourceChannel, captionsEnabled);
       } catch (err) {
         if (savedFilePath) {
           try { if (fs.existsSync(savedFilePath)) fs.unlinkSync(savedFilePath); } catch { /* ignore */ }
@@ -300,7 +307,9 @@ router.post("/clips/:id/retry", async (req, res): Promise<void> => {
     outputFilename,
     clipMode,
     clipFrameStyle,
-    clip.localFilePath ?? undefined
+    clip.localFilePath ?? undefined,
+    clip.sourceChannel ?? "",
+    clip.captionsEnabled ?? true
   );
 });
 
@@ -356,6 +365,7 @@ router.get("/clips/:id/download", async (req, res): Promise<void> => {
 
   res.download(filePath, clip.outputFilename);
 });
+
 
 router.get("/clips/:id/thumbnail", async (req, res): Promise<void> => {
   const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;

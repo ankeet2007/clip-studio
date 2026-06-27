@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -20,6 +20,8 @@ export const clipsTable = pgTable("clips", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
   sourceChannel: text("source_channel").notNull().default(""),
+  captionsEnabled: boolean("captions_enabled").notNull().default(true),
+  transcript: text("transcript"),
 });
 
 export const insertClipSchema = createInsertSchema(clipsTable).omit({
@@ -29,6 +31,7 @@ export const insertClipSchema = createInsertSchema(clipsTable).omit({
   status: true,
   errorMessage: true,
   outputFilename: true,
+  transcript: true,
 });
 
 export type InsertClip = z.infer<typeof insertClipSchema>;

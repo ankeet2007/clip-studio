@@ -214,6 +214,11 @@ components:
         updatedAt:
           type: string
           format: date-time
+        captionsEnabled:
+          type: boolean
+          default: true
+        transcript:
+          type: ["string", "null"]
       required:
         - id
         - youtubeUrl
@@ -229,6 +234,7 @@ components:
         - outputFilename
         - createdAt
         - updatedAt
+        - captionsEnabled
 
     CreateClipBody:
       type: object
@@ -248,6 +254,9 @@ components:
           type: string
           enum: [edited, raw]
           default: edited
+        captionsEnabled:
+          type: boolean
+          default: true
       required:
         - youtubeUrl
         - startTime

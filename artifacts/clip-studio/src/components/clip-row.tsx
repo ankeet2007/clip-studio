@@ -1,17 +1,24 @@
-import { Clip } from "@workspace/api-client-react";
-import { useGetClip, getGetClipQueryKey, getListClipsQueryKey, getGetClipStatsQueryKey, useDeleteClip } from "@workspace/api-client-react";
+import { Clip, useGetClip, getGetClipQueryKey, getListClipsQueryKey, getGetClipStatsQueryKey, useDeleteClip } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Download, Trash2, PlayCircle, AlertTriangle, CheckCircle, Clock, Loader2, RefreshCw, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+
+import { API_BASE } from "@/lib/api";
 
 export function ClipRow({ initialClip }: { initialClip: Clip }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [thumbError, setThumbError] = useState(false);
   const prevStatus = useRef(initialClip.status);
 
   const { data: clip = initialClip } = useGetClip(initialClip.id, {
@@ -59,7 +66,7 @@ export function ClipRow({ initialClip }: { initialClip: Clip }) {
   async function handleRetry(e: React.MouseEvent) {
     e.stopPropagation();
     try {
-      const res = await fetch(`/api/clips/${clip.id}/retry`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/api/clips/${clip.id}/retry`, { method: "POST" });
       if (!res.ok) throw new Error("Retry failed");
       queryClient.invalidateQueries({ queryKey: getGetClipQueryKey(clip.id) });
       queryClient.invalidateQueries({ queryKey: getListClipsQueryKey() });
@@ -72,9 +79,7 @@ export function ClipRow({ initialClip }: { initialClip: Clip }) {
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Delete this clip?")) {
-      deleteClip.mutate({ id: clip.id });
-    }
+    setDeleteOpen(true);
   };
 
   const getStatusBadge = () => {
@@ -103,6 +108,8 @@ export function ClipRow({ initialClip }: { initialClip: Clip }) {
             <AlertTriangle className="w-3 h-3" /> ERROR
           </Badge>
         );
+      default:
+        return null;
     }
   };
 
@@ -111,24 +118,44 @@ export function ClipRow({ initialClip }: { initialClip: Clip }) {
   const pct = rawPct <= 3 ? 0 : rawPct <= 48 ? Math.round((rawPct / 48) * 45) : rawPct < 55 ? 45 : Math.round(45 + ((rawPct - 55) / 45) * 55);
 
   return (
+    <>
+    <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete clip?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently remove the clip and its output file. This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => deleteClip.mutate({ id: clip.id })}
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <div
-      className="flex flex-col md:flex-row md:items-center gap-3 p-4 border-b border-border/50 bg-card/50 hover:bg-card transition-colors cursor-pointer group"
+      className="flex flex-col md:flex-row md:items-center gap-3 p-4 bg-card/50 hover:bg-card transition-colors cursor-pointer group"
       onClick={() => navigate(`/clips/${clip.id}`)}
     >
-      {clip.status === "done" && (
-        <div className="shrink-0 w-12 h-20 rounded overflow-hidden bg-muted border border-border/50">
+      {clip.status === "done" && !thumbError && (
+        <div className="shrink-0 w-24 aspect-video rounded overflow-hidden bg-muted border border-border/50">
           <img
-            src={"/api/clips/" + clip.id + "/thumbnail"}
+            src={`${API_BASE}/api/clips/${clip.id}/thumbnail`}
             alt="thumbnail"
             className="w-full h-full object-cover"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            onError={() => setThumbError(true)}
           />
         </div>
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-3 mb-1">
           {getStatusBadge()}
-          <h3 className="font-semibold text-sm truncate">{clip.headline}</h3>
+          <h3 className="font-semibold text-sm truncate">{clip.headline || <span className="text-muted-foreground italic font-normal">Raw clip</span>}</h3>
         </div>
         <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
           {clip.sourceType === "local" ? (
@@ -212,7 +239,7 @@ export function ClipRow({ initialClip }: { initialClip: Clip }) {
             asChild
             onClick={(e) => e.stopPropagation()}
           >
-            <a href={`/api/clips/${clip.id}/download`} download>
+            <a href={`${API_BASE}/api/clips/${clip.id}/download`} download>
               <Download className="w-4 h-4 mr-2" />
               DOWNLOAD
             </a>
@@ -230,5 +257,6 @@ export function ClipRow({ initialClip }: { initialClip: Clip }) {
         <ChevronRight className="w-4 h-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />
       </div>
     </div>
+    </>
   );
 }

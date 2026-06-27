@@ -7,3 +7,13 @@ cookies.txt
 nohup.out
 server.log
 *.png
+
+# Secrets — never commit (rotate the DB password; .env was public in history)
+.env
+.env.*
+start-server.sh
+SETUP-SUMMARY.md
+
+# Local data / large artifacts
+downloaded_clips/
+uploads/

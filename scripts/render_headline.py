@@ -51,6 +51,8 @@ def main():
     max_lines = int(params.get("max_lines", 2))
     min_font_size = int(params.get("min_font_size", 36))
     side_margin = int(params.get("side_margin", 60))
+    # Optional cap on the rendered block height (e.g. the title bar). 0 = no cap.
+    max_height = int(params.get("max_height", 0))
 
     max_line_width = canvas_width - 2 * side_margin
     probe = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
@@ -69,7 +71,10 @@ def main():
             lines = wrap_text_pixel(text, pilmoji, font, max_line_width, size)
             widths = [measure(pilmoji, ln, font, size)[0] for ln in lines]
 
-        if len(lines) <= max_lines and all(w <= max_line_width for w in widths):
+        block_height = len(lines) * (size + line_spacing) + line_spacing
+        fits_height = (max_height <= 0) or (block_height <= max_height)
+
+        if len(lines) <= max_lines and all(w <= max_line_width for w in widths) and fits_height:
             chosen_lines = lines
             chosen_font = font
             chosen_size = size

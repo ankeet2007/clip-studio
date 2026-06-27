@@ -9,8 +9,8 @@ import { logger } from "./logger";
 
 const execFileAsync = promisify(execFile);
 
-const OUTPUT_DIR = process.env.CLIPS_OUTPUT_DIR ?? "/home/runner/workspace/clips_output";
-const UPLOADS_DIR = process.env.UPLOADS_DIR ?? "/home/runner/workspace/uploads";
+const OUTPUT_DIR = process.env.CLIPS_OUTPUT_DIR ?? path.join(os.homedir(), "myapp", "clips_output");
+const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(os.homedir(), "myapp", "uploads");
 const FONTS_DIR = path.join(findWorkspaceRoot(), "assets", "fonts");
 const WATERMARK_FONT = path.join(FONTS_DIR, "Sora-SemiBold.ttf");
 const ANTON_FONT = path.join(FONTS_DIR, "Anton-Regular.ttf");
@@ -179,13 +179,18 @@ function timeToSeconds(ts: string): number {
 export function normalizeYoutubeUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    if (parsed.hostname.includes("youtube.com") && parsed.pathname.startsWith("/live/")) {
-      const videoId = parsed.pathname.replace("/live/", "");
-      return `https://www.youtube.com/watch?v=${videoId}`;
+    if (parsed.hostname.includes("youtube.com")) {
+      if (parsed.pathname.startsWith("/live/")) {
+        const videoId = parsed.pathname.replace("/live/", "").split("/")[0];
+        return `https://www.youtube.com/watch?v=${videoId}`;
+      }
+      if (parsed.pathname.startsWith("/shorts/")) {
+        const videoId = parsed.pathname.replace("/shorts/", "").split("/")[0];
+        return `https://www.youtube.com/watch?v=${videoId}`;
+      }
     }
     return parsed.toString();
   } catch {
-    // If URL() can't parse it, just lowercase the protocol prefix
     return url.replace(/^https?:\/\//i, (m) => m.toLowerCase());
   }
 }
@@ -548,7 +553,9 @@ export async function processClip(
   clipId = 0,
   localFilePath?: string,
   frameStyle: "standard" | "immersive" = "immersive",
-  sourceChannel = ""
+  sourceChannel = "",
+  captionsEnabled = true,
+  outroEnabled = true
 ): Promise<void> {
   const isLocalFile = !!localFilePath;
   const ytDlp = findYtDlp();
@@ -617,22 +624,30 @@ export async function processClip(
     const videoH = frameStyle === "standard" ? 608 : 1350;
     const videoY = 200;    // fixed top bar for title
 
-    const fontSize = 80;
+    const fontSize = 96;
     const lineSpacing = 14;
 
     const fontFile = findFont();
+    // Headlines render in Anton (bold condensed display face) — its capital "I"
+    // is a thick full-height bar that can't be mistaken for a lowercase "l", and
+    // it gives the punchy, professional look expected of Shorts titles.
+    const headlineFont = fs.existsSync(ANTON_FONT) ? ANTON_FONT : fontFile;
     let tmpPngPath: string | null = null;
     let pngHeight = 0;
 
     if (headline && headline.trim()) {
       tmpPngPath = path.join(os.tmpdir(), `clip_hl_${tmpId}.png`);
       const renderParams = JSON.stringify({
-        text: headline,
-        font_path: fontFile,
+        // Upper-case for the bold Shorts headline style (also removes any
+        // remaining ambiguity between similar glyphs).
+        text: headline.toUpperCase(),
+        font_path: headlineFont,
         font_size: fontSize,
         line_spacing: lineSpacing,
         max_chars: 28,
         canvas_width: canvasW,
+        // Keep the title block inside the top bar (videoY tall) with breathing room.
+        max_height: videoY - 40,
         output_path: tmpPngPath,
       });
       const python3 = findPython();
@@ -685,10 +700,17 @@ export async function processClip(
     // Inputs: [0] = downloaded video clip, [1] = headline PNG (if headline is set)
     const extraInputs: string[] = [];
     const filters: string[] = [
-      `[0:v]scale=${videoW}:${videoH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${videoW}:${videoH},unsharp=5:5:1.0:5:5:0.0[vid]`,
-      `color=#111111:size=${canvasW}x${canvasH}:rate=60[bg]`,
+      // Split the source: one copy becomes a blurred, dimmed full-frame backdrop
+      // (true "immersive" look), the other is the sharp centred video.
+      `[0:v]split=2[vsrc][vbg]`,
+      `[vbg]scale=216:384:force_original_aspect_ratio=increase,crop=216:384,gblur=sigma=9,scale=${canvasW}:${canvasH}:flags=bilinear,eq=brightness=-0.30:saturation=1.15[bg]`,
+      `[vsrc]scale=${videoW}:${videoH}:force_original_aspect_ratio=increase:flags=lanczos,crop=${videoW}:${videoH},unsharp=5:5:1.0:5:5:0.0[vid]`,
       `[bg][vid]overlay=0:${videoY}[composedv]`,
-      `[composedv]drawbox=x=0:y=${videoY - 3}:w=${canvasW}:h=3:color=FF0000:t=fill[composedac]`,
+      // Soft dark scrims behind the title and handle so white text stays legible
+      // over the blurred backdrop.
+      `[composedv]drawbox=x=0:y=0:w=${canvasW}:h=${videoY}:color=black@0.30:t=fill[scrimtop]`,
+      `[scrimtop]drawbox=x=0:y=${videoY + videoH}:w=${canvasW}:h=${canvasH - videoY - videoH}:color=black@0.30:t=fill[composedsc]`,
+      `[composedsc]drawbox=x=0:y=${videoY - 3}:w=${canvasW}:h=3:color=FF0000:t=fill[composedac]`,
       sourceChannel && sourceChannel.trim() ? `[composedac]drawtext=text='📎 ${sourceChannel.trim().replace(/'/g,"")}':fontsize=24:fontcolor=white@0.85:x=w-text_w-16:y=${videoY + videoH - 36}:shadowx=1:shadowy=1:shadowcolor=black@0.9[composed]` : `[composedac]null[composed]`,
     ];
     let prevLabel = "composed";
@@ -720,26 +742,47 @@ export async function processClip(
       filters.push(`[${prevLabel}]null[pre_outro]`);
     }
 
-    // Outro card: last 2 seconds = black overlay + styled end screen
-    const outroStart = Math.max(0, duration - 2);
-    const safeHandleOutro = (channelHandle || '').replace(/'/g, '').trim();
-    filters.push(
-      // Black overlay
-      `[pre_outro]drawbox=x=0:y=0:w=${canvasW}:h=${canvasH}:color=black@1:t=fill:enable='gte(t,${outroStart})'[ob]`,
-      // Thin red accent line top
-      `[ob]drawbox=x=340:y=700:w=400:h=3:color=FF0000:t=fill:enable='gte(t,${outroStart})'[ol1]`,
-      // Channel handle
-      `[ol1]drawtext=text='${safeHandleOutro}':fontsize=44:fontcolor=white:x=(w-text_w)/2:y=750:enable='gte(t,${outroStart})'[ol2]`,
-      // Red subscribe button background
-      `[ol2]drawbox=x=${Math.floor((canvasW - 380) / 2)}:y=830:w=380:h=80:color=FF0000:t=fill:enable='gte(t,${outroStart})'[ol3]`,
-      // Round corners illusion - small black boxes at corners
-      // SUBSCRIBE text inside red button
-      `[ol3]drawtext=text='SUBSCRIBE':fontsize=42:fontcolor=white:x=(w-text_w)/2:y=848:enable='gte(t,${outroStart})'[ol4]`,
-      // Thin red accent line bottom
-      `[ol4]drawbox=x=340:y=940:w=400:h=3:color=FF0000:t=fill:enable='gte(t,${outroStart})'[out]`
-    );
+    if (outroEnabled) {
+      // Outro card: last 2 seconds = black overlay + styled end screen
+      const outroStart = Math.max(0, duration - 2);
+      const safeHandleOutro = (channelHandle || '').replace(/'/g, '').trim();
+      filters.push(
+        // Black overlay
+        `[pre_outro]drawbox=x=0:y=0:w=${canvasW}:h=${canvasH}:color=black@1:t=fill:enable='gte(t,${outroStart})'[ob]`,
+        // Thin red accent line top
+        `[ob]drawbox=x=340:y=700:w=400:h=3:color=FF0000:t=fill:enable='gte(t,${outroStart})'[ol1]`,
+        // Channel handle
+        `[ol1]drawtext=text='${safeHandleOutro}':fontsize=44:fontcolor=white:x=(w-text_w)/2:y=750:enable='gte(t,${outroStart})'[ol2]`,
+        // Red subscribe button background
+        `[ol2]drawbox=x=${Math.floor((canvasW - 380) / 2)}:y=830:w=380:h=80:color=FF0000:t=fill:enable='gte(t,${outroStart})'[ol3]`,
+        // SUBSCRIBE text inside red button
+        `[ol3]drawtext=text='SUBSCRIBE':fontsize=42:fontcolor=white:x=(w-text_w)/2:y=848:enable='gte(t,${outroStart})'[ol4]`,
+        // Thin red accent line bottom
+        `[ol4]drawbox=x=340:y=940:w=400:h=3:color=FF0000:t=fill:enable='gte(t,${outroStart})'[out]`
+      );
+    } else {
+      filters.push(`[pre_outro]null[out]`);
+    }
 
     const filterComplex = filters.join(";");
+
+    // Detect whether the source has an audio track so we can (a) safely apply an
+    // audio filter and (b) fade the audio out under the outro card instead of
+    // letting dialogue play over the subscribe screen.
+    let hasAudio = false;
+    try {
+      const probe = await execFileAsync("ffprobe", [
+        "-v", "error", "-select_streams", "a",
+        "-show_entries", "stream=index", "-of", "csv=p=0", tmpInputPath,
+      ], { timeout: 15000 });
+      hasAudio = probe.stdout.trim().length > 0;
+    } catch { /* assume no audio */ }
+
+    // Gently duck the audio out across the last 3s so it's already quiet by the
+    // time the outro card appears (instead of dialogue blasting over it).
+    const outroAudioFade = outroEnabled && hasAudio
+      ? ["-af", `afade=t=out:st=${Math.max(0, duration - 3)}:d=3`]
+      : [];
 
     // Step 4: Run ffmpeg, reporting 55-95% progress by parsing time= lines
     // For local files, add fast input-side seek (-ss before -i) so ffmpeg trims precisely
@@ -751,6 +794,7 @@ export async function processClip(
       "-filter_complex", filterComplex,
       "-map", "[out]",
       "-map", "0:a?",
+      ...outroAudioFade,
       "-c:v", "libx264",
       "-threads", "1",
       "-preset", "veryfast",
@@ -796,22 +840,52 @@ export async function processClip(
       }
 
       // Generate captions via whisper.cpp + burn into video (non-fatal)
-      try {
+      if (captionsEnabled) try {
         const srtPath = path.join(outputDir, `clip_${clipId}_captions.srt`);
+        const transcriptPath = path.join(outputDir, `clip_${clipId}_transcript.txt`);
         const captionScript = path.join(os.homedir(), "myapp/scripts/generate_captions.sh");
         const captionedPath = path.join(outputDir, `clip_${clipId}_captioned.mp4`);
 
         if (fs.existsSync(captionScript)) {
           await new Promise<void>((resolve) => {
-            const cap = spawn("bash", [captionScript, finalOutputPath, srtPath], { timeout: 300000 });
+            const cap = spawn("bash", [captionScript, finalOutputPath, srtPath, transcriptPath], { timeout: 300000 });
             cap.on("close", () => resolve());
             cap.on("error", () => resolve());
           });
 
+          if (fs.existsSync(transcriptPath)) {
+            try {
+              const transcript = fs.readFileSync(transcriptPath, "utf8").trim();
+              if (transcript) {
+                await db.update(clipsTable).set({ transcript }).where(eq(clipsTable.id, clipId));
+              }
+            } catch { /* non-fatal */ }
+            fs.unlinkSync(transcriptPath);
+          }
+
           if (fs.existsSync(srtPath)) {
+            // Convert the cleaned SRT into animated word-by-word ("karaoke")
+            // captions (active word highlighted). Fall back to a plain bold-SRT
+            // burn if the converter is missing or produces nothing.
+            // NB: Anton is great for the PIL-rendered headline, but libass
+            // double-renders it into a ghosted outline — captions use DejaVu Sans.
+            const assPath = path.join(outputDir, `clip_${clipId}_captions.ass`);
+            const karaokeScript = path.join(os.homedir(), "myapp/scripts/karaoke_captions.py");
+            let subFilter = `subtitles=${srtPath}:fontsdir=${FONTS_DIR}:force_style='FontName=DejaVu Sans,FontSize=12,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Bold=1,Alignment=2,MarginV=95'`;
+            if (fs.existsSync(karaokeScript)) {
+              try {
+                await execFileAsync(findPython(), [karaokeScript, srtPath, assPath, String(Math.max(0, duration - 2))], { timeout: 30000 });
+                if (fs.existsSync(assPath) && fs.readFileSync(assPath, "utf8").includes("Dialogue:")) {
+                  subFilter = `subtitles=${assPath}:fontsdir=${FONTS_DIR}`;
+                }
+              } catch (kErr) {
+                logger.warn({ kErr }, "Karaoke caption generation failed — falling back to plain SRT");
+              }
+            }
+
             await spawnProcess("ffmpeg", [
               "-y", "-i", finalOutputPath,
-              "-vf", `subtitles=${srtPath}:force_style='FontName=Arial,FontSize=10,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Bold=1,Alignment=2,MarginV=60'`,
+              "-vf", subFilter,
               "-c:v", "libx264", "-preset", "veryfast", "-crf", "14", "-threads", "1",
               "-c:a", "copy",
               captionedPath,
@@ -822,6 +896,7 @@ export async function processClip(
               logger.info({ finalOutputPath }, "Captions burned into clip");
             }
             fs.existsSync(srtPath) && fs.unlinkSync(srtPath);
+            fs.existsSync(assPath) && fs.unlinkSync(assPath);
           }
         }
       } catch (capErr) {

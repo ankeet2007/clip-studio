@@ -13,11 +13,13 @@ import {
   Loader2,
   CheckCircle,
   AlertTriangle,
-  Scissors,
   PlayCircle,
   Link,
 } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { AppHeader } from "@/components/app-header";
+import { useEffect, useRef, useState } from "react";
+
+import { API_BASE } from "@/lib/api";
 
 export default function ClipDetail() {
   const params = useParams<{ id: string }>();
@@ -25,10 +27,12 @@ export default function ClipDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const clipId = Number(params.id);
+  const validId = Number.isInteger(clipId) && clipId > 0;
 
   const { data: clip, isLoading, isError } = useGetClip(clipId, {
     query: {
       queryKey: getGetClipQueryKey(clipId),
+      enabled: validId,
       refetchInterval: (query) => {
         const status = query.state.data?.status;
         return status === "pending" || status === "processing" ? 3000 : false;
@@ -36,10 +40,11 @@ export default function ClipDetail() {
     },
   });
 
-  const prevStatus = useRef(clip?.status);
+  const prevStatus = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (prevStatus.current !== clip?.status && (clip?.status === "done" || clip?.status === "error")) {
-      prevStatus.current = clip.status;
+    const prev = prevStatus.current;
+    prevStatus.current = clip?.status;
+    if (prev !== undefined && prev !== clip?.status && (clip?.status === "done" || clip?.status === "error")) {
       queryClient.invalidateQueries({ queryKey: getListClipsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetClipStatsQueryKey() });
     }
@@ -47,7 +52,7 @@ export default function ClipDetail() {
 
   async function handleRetry() {
     try {
-      const res = await fetch(`/api/clips/${clipId}/retry`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/api/clips/${clipId}/retry`, { method: "POST" });
       if (!res.ok) throw new Error("Retry failed");
       queryClient.invalidateQueries({ queryKey: getGetClipQueryKey(clipId) });
       queryClient.invalidateQueries({ queryKey: getListClipsQueryKey() });
@@ -90,21 +95,10 @@ export default function ClipDetail() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col font-sans">
-      {/* Header */}
-      <header className="border-b border-border bg-card px-6 py-4 flex items-center gap-3 shrink-0">
-        <div className="w-8 h-8 bg-primary rounded flex items-center justify-center text-primary-foreground">
-          <Scissors className="w-5 h-5" strokeWidth={2.5} />
-        </div>
-        <div>
-          <h1 className="font-bold tracking-tight leading-none">CLIP STUDIO</h1>
-          <p className="text-[10px] uppercase font-mono text-muted-foreground tracking-wider">
-            Viral Shorts Factory
-          </p>
-        </div>
-      </header>
+    <div className="h-full bg-background text-foreground flex flex-col font-sans overflow-hidden">
+      <AppHeader />
 
-      <main className="flex-1 p-6 md:p-8 max-w-3xl mx-auto w-full">
+      <main className="flex-1 min-h-0 overflow-y-auto p-6 md:p-8 max-w-3xl mx-auto w-full">
         {/* Back button */}
         <button
           onClick={() => navigate("/timeline")}
@@ -120,7 +114,7 @@ export default function ClipDetail() {
             <Skeleton className="h-4 w-48 bg-muted" />
             <Skeleton className="h-32 w-full bg-muted rounded-lg" />
           </div>
-        ) : isError || !clip ? (
+        ) : !validId || isError || !clip ? (
           <div className="text-center py-16 text-muted-foreground">
             <p className="font-mono text-sm uppercase tracking-widest">Clip not found</p>
             <Button variant="ghost" className="mt-4" onClick={() => navigate("/")}>
@@ -136,7 +130,7 @@ export default function ClipDetail() {
                   {getStatusBadge()}
                   <span className="font-mono text-xs text-muted-foreground">#{clip.id}</span>
                 </div>
-                <h2 className="text-2xl font-bold tracking-tight truncate">{clip.headline}</h2>
+                <h2 className="text-2xl font-bold tracking-tight truncate">{clip.headline || <span className="text-muted-foreground italic font-normal">Raw clip</span>}</h2>
               </div>
 
               {/* Actions */}
@@ -146,7 +140,7 @@ export default function ClipDetail() {
                     className="font-mono text-xs bg-green-600 hover:bg-green-500 text-white"
                     asChild
                   >
-                    <a href={`/api/clips/${clip.id}/download`} download>
+                    <a href={`${API_BASE}/api/clips/${clip.id}/download`} download>
                       <Download className="w-4 h-4 mr-2" />
                       Download
                     </a>
@@ -171,8 +165,17 @@ export default function ClipDetail() {
                 <div className="flex items-start gap-3">
                   <Link className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                   <div className="min-w-0">
-                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-0.5">Source URL</p>
-                    <p className="text-sm font-mono break-all">{clip.youtubeUrl}</p>
+                    {clip.sourceType === "local" ? (
+                      <>
+                        <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-0.5">Local File</p>
+                        <p className="text-sm font-mono break-all">{clip.localFileName ?? "Uploaded file"}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-0.5">Source URL</p>
+                        <p className="text-sm font-mono break-all">{clip.youtubeUrl}</p>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -244,7 +247,7 @@ export default function ClipDetail() {
                     className="font-mono text-xs bg-green-600 hover:bg-green-500 text-white shrink-0"
                     asChild
                   >
-                    <a href={`/api/clips/${clip.id}/download`} download>
+                    <a href={`${API_BASE}/api/clips/${clip.id}/download`} download>
                       <Download className="w-4 h-4 mr-2" />
                       Download
                     </a>
@@ -252,6 +255,7 @@ export default function ClipDetail() {
                 )}
               </div>
             )}
+
           </div>
         )}
       </main>

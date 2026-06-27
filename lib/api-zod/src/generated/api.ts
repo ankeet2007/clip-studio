@@ -42,6 +42,8 @@ export const ListClipsResponseItem = zod.object({
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   sourceChannel: zod.string(),
+  captionsEnabled: zod.boolean(),
+  transcript: zod.string().nullable(),
 });
 export const ListClipsResponse = zod.array(ListClipsResponseItem);
 
@@ -61,6 +63,7 @@ export const CreateClipBody = zod.object({
   mode: zod.enum(["edited", "raw"]).default(createClipBodyModeDefault),
   frameStyle: zod.enum(["standard", "immersive"]).default(createClipBodyFrameStyleDefault),
   sourceChannel: zod.string().default(""),
+  captionsEnabled: zod.boolean().default(true),
 });
 
 /**
@@ -93,6 +96,8 @@ export const GetClipResponse = zod.object({
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   sourceChannel: zod.string(),
+  captionsEnabled: zod.boolean(),
+  transcript: zod.string().nullable(),
 });
 
 /**
@@ -131,6 +136,8 @@ export const RetryClipResponse = zod.object({
   outputFilename: zod.string().nullable(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
+  captionsEnabled: zod.boolean(),
+  transcript: zod.string().nullable(),
 });
 
 /**
