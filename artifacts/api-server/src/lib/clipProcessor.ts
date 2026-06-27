@@ -338,11 +338,17 @@ function spawnProcess(
     }
     resetStall();
 
-    // Hard upper-bound timeout
-    const hardTimer = setTimeout(
-      () => fail(`killed|timed out after ${timeoutMs / 1000}s\n${stderrBuf}`),
-      timeoutMs
-    );
+    // Hard upper-bound timeout. timeoutMs <= 0 disables it entirely, leaving only
+    // the stall timer as the safety net — used for CPU-bound ffmpeg renders that can
+    // legitimately run very long on slow hardware (the phone) but still emit progress
+    // output regularly, so a genuine hang (no output for stallTimeoutMs) is still caught.
+    const hardTimer =
+      timeoutMs > 0
+        ? setTimeout(
+            () => fail(`killed|timed out after ${timeoutMs / 1000}s\n${stderrBuf}`),
+            timeoutMs
+          )
+        : undefined;
 
     function handleData(chunk: Buffer, isStderr: boolean) {
       resetStall();
@@ -810,7 +816,10 @@ export async function processClip(
 
     logger.info({ pngHeight, channelHandle, fontFile }, "Starting ffmpeg");
 
-    await spawnProcess("ffmpeg", ffmpegArgs, 600000, (line) => {
+    // No hard timeout: the immersive composite is CPU-bound and can run long on the
+    // phone. ffmpeg prints a progress line per ~second, so the 90s stall timer still
+    // kills a genuine hang. (Was 600000 — too short for 1080p renders on slow ARM.)
+    await spawnProcess("ffmpeg", ffmpegArgs, 0, (line) => {
       // ffmpeg progress: "... time=00:00:04.10 ..."
       const m = line.match(/time=(\d+):(\d+):(\d+\.?\d*)/);
       if (m) {
@@ -848,7 +857,9 @@ export async function processClip(
 
         if (fs.existsSync(captionScript)) {
           await new Promise<void>((resolve) => {
-            const cap = spawn("bash", [captionScript, finalOutputPath, srtPath, transcriptPath], { timeout: 300000 });
+            // 30 min cap: whisper small.en is slow on the phone (~6 min for a ~45s clip);
+            // 5 min was too short and silently dropped captions on longer segments.
+            const cap = spawn("bash", [captionScript, finalOutputPath, srtPath, transcriptPath], { timeout: 1_800_000 });
             cap.on("close", () => resolve());
             cap.on("error", () => resolve());
           });
@@ -889,7 +900,9 @@ export async function processClip(
               "-c:v", "libx264", "-preset", "veryfast", "-crf", "14", "-threads", "1",
               "-c:a", "copy",
               captionedPath,
-            ], 600000, () => {});
+              // No hard timeout — caption burn is another full crf-14 re-encode that
+              // can also exceed 10 min on the phone; stall timer still guards hangs.
+            ], 0, () => {});
 
             if (fs.existsSync(captionedPath)) {
               fs.renameSync(captionedPath, finalOutputPath);
