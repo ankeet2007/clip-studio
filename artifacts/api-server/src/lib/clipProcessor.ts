@@ -793,10 +793,22 @@ export async function processClip(
       hasAudio = probe.stdout.trim().length > 0;
     } catch { /* assume no audio */ }
 
-    // Gently duck the audio out across the last 3s so it's already quiet by the
-    // time the outro card appears (instead of dialogue blasting over it).
-    const outroAudioFade = outroEnabled && hasAudio
-      ? ["-af", `afade=t=out:st=${Math.max(0, duration - 3)}:d=3`]
+    // Build the audio filter chain. When the source has audio we always normalise
+    // loudness to YouTube's target (-14 LUFS integrated, -1.5 dBTP true peak) so
+    // every clip sounds consistent and at the platform's reference level instead
+    // of whatever the source happened to be. Single-pass loudnorm is light enough
+    // for the phone; two-pass would be more accurate but needs a separate analysis
+    // run. Then, if the outro card is enabled, gently duck the audio out across the
+    // last 3s so it's already quiet by the time the subscribe screen appears.
+    const audioFilterChain: string[] = [];
+    if (hasAudio) {
+      audioFilterChain.push("loudnorm=I=-14:TP=-1.5:LRA=11");
+      if (outroEnabled) {
+        audioFilterChain.push(`afade=t=out:st=${Math.max(0, duration - 3)}:d=3`);
+      }
+    }
+    const outroAudioFade = audioFilterChain.length
+      ? ["-af", audioFilterChain.join(",")]
       : [];
 
     // Step 4: Run ffmpeg, reporting 55-95% progress by parsing time= lines
