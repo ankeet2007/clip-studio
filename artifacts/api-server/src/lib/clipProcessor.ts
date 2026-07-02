@@ -667,8 +667,10 @@ export async function processClip(
 
     await updateProgress(45, true);
 
-    // Position: center the headline PNG vertically in the top white bar
-    const hlY = Math.max(30, Math.floor((videoY - pngHeight) / 2));
+    // Position: sit the headline PNG in the top bar, biased ~36px DOWNWARD from
+    // centered (keeps it clear of YouTube's very-top back/search icons), clamped so
+    // the bottom of the block never crosses the red line at videoY.
+    const hlY = Math.max(30, Math.min(videoY - pngHeight - 8, Math.floor((videoY - pngHeight) / 2) + 36));
 
     // Detect if the source video already has a logo/watermark in the bottom-center
     // area where our channel handle would go, and shift ours right if so.
@@ -719,7 +721,7 @@ export async function processClip(
       `[composedv]drawbox=x=0:y=0:w=${canvasW}:h=${videoY}:color=black@0.30:t=fill[scrimtop]`,
       `[scrimtop]drawbox=x=0:y=${videoY + videoH}:w=${canvasW}:h=${canvasH - videoY - videoH}:color=black@0.30:t=fill[composedsc]`,
       `[composedsc]drawbox=x=0:y=${videoY - 3}:w=${canvasW}:h=3:color=FF0000:t=fill[composedac]`,
-      sourceChannel && sourceChannel.trim() ? `[composedac]drawtext=text='📎 ${sourceChannel.trim().replace(/'/g,"")}':fontsize=24:fontcolor=white@0.85:x=w-text_w-16:y=${videoY + videoH - 36}:shadowx=1:shadowy=1:shadowcolor=black@0.9[composed]` : `[composedac]null[composed]`,
+      sourceChannel && sourceChannel.trim() ? `[composedac]drawtext=text='📎 ${sourceChannel.trim().replace(/'/g,"")}':fontsize=24:fontcolor=white@0.85:x=16:y=${videoY + videoH - 36}:shadowx=1:shadowy=1:shadowcolor=black@0.9[composed]` : `[composedac]null[composed]`,
     ];
     let prevLabel = "composed";
 
@@ -731,16 +733,20 @@ export async function processClip(
       prevLabel = "after_hl";
     }
 
-    // Channel handle watermark: small white text with shadow near the bottom of the video frame
+    // Channel handle watermark: small white text with shadow near the top of the video frame
     if (channelHandle && channelHandle.trim()) {
       // Watermark uses Anton (bold condensed display face, same as the headline) in
-      // uppercase so it reads strongly. It lives in the black bar below the video, so
-      // it is always horizontally centered — the source-watermark overlap shift in
-      // handleX only matters for text drawn over the video frame, not down here.
+      // uppercase so it reads strongly. It stays horizontally centered.
+      //
+      // It USED to sit centered in the black bar BELOW the video (~y=1731), but on a
+      // posted YouTube Short that bottom strip is covered by YouTube's own UI
+      // (description, @handle, progress bar), so the watermark was hidden. We keep it
+      // bottom-center but lift it up onto the lower part of the video frame so it
+      // clears the chrome and stays visible.
       const safeHandle = escapeDrawtext(channelHandle.trim().toUpperCase());
       const handleFont = fs.existsSync(ANTON_FONT) ? ANTON_FONT : (fs.existsSync(WATERMARK_FONT) ? WATERMARK_FONT : fontFile);
       const handleFontSize = 48;
-      const handleY = videoY + videoH + Math.floor((canvasH - videoY - videoH - handleFontSize) / 2);  // vertically centered in bottom bar
+      const handleY = videoY + videoH + 20;  // bottom-center, just below the video frame with a small gap
       filters.push(
         `[${prevLabel}]drawtext=` +
         `text='${safeHandle}':` +
